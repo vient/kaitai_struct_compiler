@@ -10,7 +10,6 @@
   * Implement compile-time `sizeof` and `bitsizeof` operators ([#84](https://github.com/kaitai-io/kaitai_struct/issues/84))
   * Implement little-endian bit-sized integers ([docs](https://doc.kaitai.io/user_guide.html#bit-ints-le))
 * General compilation improvements:
-  * `--debug` mode split into `--no-auto-read` and `--read-pos` ([#332](https://github.com/kaitai-io/kaitai_struct/issues/332))
   * C++: add C++11 mode
     * uses `#pragma once` (instead of `#ifndef FOO_H_` header guards)
     * uses `std::unique_ptr<foo>` for owning pointers, raw pointers `foo*` for non-owning
