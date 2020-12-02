@@ -200,25 +200,6 @@ class WiresharkClassCompiler(
     lang.asInstanceOf[WiresharkCompiler].attrWiresharkParse(curClass, attr)
 
   def compileApply(curClass: ClassSpec, endian: Option[Endianness]): Unit = {
-    // endian match {
-    //   case None | Some(_: FixedEndian) =>
-    //     compileApplyProc(curClass, None)
-    //   case Some(ce: CalcEndian) =>
-    //     lang.asInstanceOf[WiresharkCompiler].applyHeader(None, false)
-    //     compileCalcEndian(ce)
-    //     lang.asInstanceOf[WiresharkCompiler].runApplyCalc()
-    //     lang.asInstanceOf[WiresharkCompiler].applyFooter()
-
-    //     compileApplyProc(curClass, Some(LittleEndian))
-    //     compileApplyProc(curClass, Some(BigEndian))
-    //   case Some(InheritedEndian) =>
-    //     lang.asInstanceOf[WiresharkCompiler].applyHeader(None, false)
-    //     lang.asInstanceOf[WiresharkCompiler].runApplyCalc()
-    //     lang.asInstanceOf[WiresharkCompiler].applyFooter()
-
-    //     compileApplyProc(curClass, Some(LittleEndian))
-    //     compileApplyProc(curClass, Some(BigEndian))
-    // }
     compileApplyProc(curClass, None)
   }
 

@@ -613,7 +613,7 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.inc
   }
 
-  def readableWiresharkProto(datatype: ReadableType): String = datatype match {
+  def readableIntWiresharkProto(datatype: IntType): String = datatype match {
     case t: Int1Type =>
       val prefix = if (t.signed) "" else "u"
       s"${prefix}int8"
@@ -621,9 +621,7 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       val prefix = if (t.signed) "" else "u"
       val width = t.width.width * 8
       s"${prefix}int${width}"
-    case t: FloatMultiType =>
-      assert(false, "readableWiresharkProto: TODO: not implemented")
-      ""
+    case _: BitsType => "int64"
   }
 
   def attrWiresharkParse(
@@ -644,14 +642,26 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       case None => attr.dataType
     }
     usingDataType match {
-      case rt: ReadableType =>
-        val protoMethod = readableWiresharkProto(rt)
+      case it: IntType =>
+        val protoMethod = readableIntWiresharkProto(it)
         handleAssignmentDumb(
           wsAttrProtoName,
           s"""ProtoField.${protoMethod}("${wsAttrPath}", "${wsAttrName}", base.DEC, nil, nil, "${doc}"),"""
         )
+      case ft: FloatMultiType =>
+        val protoMethod: String = ft.width.width match {
+          case 4 => "float"
+          case 8 => "double"
+          case _ =>
+            assert(false, s"attrWiresharkParse: invalid float length ${ft.width.width}")
+            ""
+        }
+        handleAssignmentDumb(
+          wsAttrProtoName,
+          s"""ProtoField.${protoMethod}("${wsAttrPath}", "${wsAttrName}", nil, "${doc}"),"""
+        )
       case et: EnumType =>
-        val protoMethod = readableWiresharkProto(et.basedOn.asInstanceOf[ReadableType])
+        val protoMethod = readableIntWiresharkProto(et.basedOn)
         val wsEnumName = s"${types2class(curClass.name)}.${types2class(et.name)}__ws_proto"
         handleAssignmentDumb(
           wsAttrProtoName,
@@ -672,10 +682,9 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         typeMap.foreach { case (dataType, idx) =>
           attrWiresharkParse(curClass, attr, Some(dataType), switchTypeProtoPostfix(idx))
         }
+      case _: UserType => Unit  // skip user types
       case _ =>
-        // assert(false, s"attrWiresharkParse: unsupported type ${attr.dataType}")
-        // out.puts(s"attrWiresharkParse: unsupported type ${attr.dataType}")
-        Unit
+        assert(false, s"attrWiresharkParse: unsupported type ${usingDataType}")
     }
   }
 
@@ -696,24 +705,6 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   // /_/   \_\ | .__/  | .__/  |_|  \__, |    \___|  \___/   \__,_|  \___|
   //           |_|     |_|          |___/                                 
 
-  def runApply(name: List[String]): Unit =
-    out.puts("self:_apply(tree)")
-  def runApplyCalc(): Unit = {
-    out.puts
-    out.puts(s"if self._is_le then")
-    out.inc
-    out.puts("self:_apply_le(tree)")
-    out.dec
-    out.puts(s"elseif not self._is_le then")
-    out.inc
-    out.puts("self:_apply_be(tree)")
-    out.dec
-    out.puts("else")
-    out.inc
-    out.puts("error(\"unable to decide endianness\")")
-    out.dec
-    out.puts("end")
-  }
   def applyHeader(endian: Option[FixedEndian], isEmpty: Boolean, name: String): Unit = {
     val suffix = endian match {
       case Some(e) => s"_${e.toSuffix}"
