@@ -62,6 +62,10 @@ object DataType {
     def process: Option[ProcessExpr]
   }
 
+  abstract class TvbType extends DataType
+  case object CalcTvbType extends TvbType
+  case class TvbLimitType(size: Ast.expr) extends TvbType
+
   abstract class BytesType extends DataType with Processing
   case object CalcBytesType extends BytesType {
     override def process = None
