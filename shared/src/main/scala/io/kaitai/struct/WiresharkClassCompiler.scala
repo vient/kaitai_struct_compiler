@@ -14,12 +14,27 @@ class WiresharkClassCompiler(
   config: RuntimeConfig
 ) extends ClassCompiler(classSpecs, topClass, config, WiresharkCompiler) {
 
+  override def compile: CompileLog.SpecSuccess = {
+    lang.fileHeader(topClassName.head)
+    lang.asInstanceOf[WiresharkCompiler].defineProtocol(topClassName.head)
+    compileOpaqueClasses(topClass)
+    compileClassHeadersRecursively(topClass)
+    lang.asInstanceOf[WiresharkCompiler].setParserRoot(topClassName)
+    compileWiresharkEnumsRecursively(topClass)
+    compileWiresharkTypesRecursively(topClass)
+    compileClass(topClass)
+    lang.fileFooter(topClassName.head)
+
+    CompileLog.SpecSuccess(
+      lang.type2class(topClassName.head),
+      lang.results(topClass).map { case (fileName, contents) => FileSuccess(fileName, contents) }.toList
+    )
+  }
+
   override def compileClass(curClass: ClassSpec): Unit = {
     provider.nowClass = curClass
 
     curClass.meta.imports.foreach(file => lang.importFile(file))
-
-    compileClassHeadersRecursively(curClass)
 
     // Forward declarations for recursive types
     curClass.types.foreach { case (typeName, _) => lang.classForwardDeclaration(List(typeName)) }
@@ -36,12 +51,6 @@ class WiresharkClassCompiler(
       }
     )
 
-    // Wireshark enum list
-    compileWiresharkEnumsRecursively(curClass)
-
-    // Wireshark type list
-    compileWiresharkTypesRecursively(curClass)
-
     if (lang.innerEnums)
       compileEnums(curClass)
 
@@ -55,7 +64,7 @@ class WiresharkClassCompiler(
     compileEagerRead(curClass.seq, curClass.meta.endian)
 
     // Apply method(s)
-    compileApply(curClass, curClass.meta.endian)
+    compileApply(curClass)
 
     // Destructor
     compileDestructor(curClass)
@@ -93,78 +102,7 @@ class WiresharkClassCompiler(
   }
 
   override def compileSubclasses(curClass: ClassSpec): Unit =
-    curClass.types.foreach { case (_, intClass) => compileNonRootClass(intClass) }
-
-  def compileNonRootClass(curClass: ClassSpec): Unit = {
-    // do not compile enums and wireshark definitions
-    provider.nowClass = curClass
-
-    curClass.meta.imports.foreach(file => lang.importFile(file))
-
-    // Forward declarations for recursive types
-    curClass.types.foreach { case (typeName, _) => lang.classForwardDeclaration(List(typeName)) }
-
-    // Forward declarations for params which reference types external to this type
-    curClass.params.foreach((paramDefSpec) =>
-      paramDefSpec.dataType match {
-        case ut: UserType =>
-          val externalTypeName = ut.classSpec.get.name
-          if (externalTypeName.head != curClass.name.head) {
-            lang.classForwardDeclaration(externalTypeName)
-          }
-        case _ => // no forward declarations needed
-      }
-    )
-
-    if (lang.innerEnums)
-      compileEnums(curClass)
-
-    if (lang.config.readStoresPos)
-      lang.debugClassSequence(curClass.seq)
-
-    // Constructor
-    compileConstructor(curClass)
-
-    // Read method(s)
-    compileEagerRead(curClass.seq, curClass.meta.endian)
-
-    // Apply method(s)
-    compileApply(curClass, curClass.meta.endian)
-
-    // Destructor
-    compileDestructor(curClass)
-
-    // Recursive types
-    if (lang.innerClasses) {
-      compileSubclasses(curClass)
-
-      provider.nowClass = curClass
-    }
-
-    compileInstances(curClass)
-
-    // Attributes declarations and readers
-    val allAttrs: List[MemberSpec] =
-      curClass.seq ++
-      curClass.params ++
-      List(
-        AttrSpec(List(), RootIdentifier, CalcUserType(topClassName, None)),
-        AttrSpec(List(), ParentIdentifier, curClass.parentType)
-      ) ++
-      ExtraAttrs.forClassSpec(curClass, lang)
-    compileAttrDeclarations(allAttrs)
-    compileAttrReaders(allAttrs)
-
-    curClass.toStringExpr.foreach(expr => lang.classToString(expr))
-
-    lang.classFooter(curClass.name)
-
-    if (!lang.innerClasses)
-      compileSubclasses(curClass)
-
-    if (!lang.innerEnums)
-      compileEnums(curClass)
-  }
+    curClass.types.foreach { case (_, intClass) => compileClass(intClass) }
 
   def compileClassHeadersRecursively(curClass: ClassSpec): Unit = {
     lang.classHeader(curClass.name)
@@ -199,24 +137,19 @@ class WiresharkClassCompiler(
   def compileWiresharkType(curClass: ClassSpec, attr: AttrLikeSpec): Unit =
     lang.asInstanceOf[WiresharkCompiler].attrWiresharkParse(curClass, attr)
 
-  def compileApply(curClass: ClassSpec, endian: Option[Endianness]): Unit = {
-    compileApplyProc(curClass, None)
+  def compileApply(curClass: ClassSpec): Unit = {
+    compileApplyProc(curClass)
   }
 
-  def compileApplyProc(curClass: ClassSpec, defEndian: Option[FixedEndian]) = {
-    lang.asInstanceOf[WiresharkCompiler].applyHeader(defEndian, curClass.seq.isEmpty, curClass.name.last)
-    compileApplySeq(curClass, defEndian)
+  def compileApplyProc(curClass: ClassSpec) = {
+    lang.asInstanceOf[WiresharkCompiler].applyHeader(curClass.seq.isEmpty, curClass.name.last)
+    compileApplySeq(curClass)
     lang.asInstanceOf[WiresharkCompiler].applyFooter()
   }
 
-  def compileApplySeq(curClass: ClassSpec, defEndian: Option[FixedEndian]) = {
-    var wasUnaligned = false
+  def compileApplySeq(curClass: ClassSpec) = {
     curClass.seq.foreach { (attr) =>
-      val nowUnaligned = isUnalignedBits(attr.dataType)
-      if (wasUnaligned && !nowUnaligned)
-        lang.alignToByte(lang.normalIO)
-      lang.asInstanceOf[WiresharkCompiler].attrApplyParse(curClass, attr, defEndian)
-      wasUnaligned = nowUnaligned
+      lang.asInstanceOf[WiresharkCompiler].attrApplyParse(curClass, attr)
     }
   }
 }

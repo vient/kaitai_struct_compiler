@@ -30,7 +30,7 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def innerEnums = true
 
   override def indent: String = "  "
-  override def outFileName(topClassName: String): String = s"${topClassName}_dissector.lua"
+  override def outFileName(topClassName: String): String = s"${topClassName}.dissector.lua"
   override def outImports(topClass: ClassSpec) =
     importList.toList.mkString("", "\n", "\n")
 
@@ -40,13 +40,25 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def fileHeader(topClassName: String): Unit = {
     outHeader.puts(s"-- $headerComment")
     outHeader.puts("--")
-    outHeader.puts("-- This file is compatible with Lua 5.3")
+    outHeader.puts("-- This file is compatible with Wireshark 3 / Lua 5.2")
     outHeader.puts
 
     importList.add("local class = require(\"class\")")
     importList.add("local stringstream = require(\"string_stream\")")
     importList.add("require(\"kaitaistruct\")")
 
+    out.puts
+  }
+
+  def defineProtocol(protocolName: String): Unit = {
+    out.puts(s"""local protocol_name = "$protocolName"""")
+    out.puts(s"""local ws_protocol = Proto(protocol_name, " ")""")
+    out.puts
+  }
+
+  def setParserRoot(name: List[String]): Unit = {
+    out.puts
+    out.puts(s"""local parser_root = ${types2class(name)}""")
     out.puts
   }
 
@@ -57,7 +69,7 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def classHeader(name: List[String]): Unit = {
     out.puts(s"${types2class(name)} = class.class()")
-    out.puts
+    // out.puts
   }
   override def classFooter(name: List[String]): Unit =
     universalFooter
@@ -691,7 +703,7 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   def wiresharkTypesFooter(): Unit = {
     out.dec
     out.puts("}")
-    out.puts("")
+    out.puts
   }
 
 
@@ -705,15 +717,10 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   // /_/   \_\ | .__/  | .__/  |_|  \__, |    \___|  \___/   \__,_|  \___|
   //           |_|     |_|          |___/                                 
 
-  def applyHeader(endian: Option[FixedEndian], isEmpty: Boolean, name: String): Unit = {
-    val suffix = endian match {
-      case Some(e) => s"_${e.toSuffix}"
-      case None => ""
-    }
-
-    out.puts(s"function ${types2class(typeProvider.nowClass.name)}:_apply$suffix(tree)")
+  def applyHeader(isEmpty: Boolean, name: String): Unit = {
+    out.puts(s"function ${types2class(typeProvider.nowClass.name)}:_apply(tree, tree_name)")
     out.inc
-    out.puts(s"""self._tree = tree:add(generic_kaitai_tcp_protocol, self._tvb, "${name}")""")
+    out.puts(s"""self._tree = tree:add(ws_protocol, self._tvb, "${type2class(name)}", tree_name)""")
   }
   def applyFooter(): Unit = {
     out.puts("return self._io:pos()")
@@ -743,29 +750,19 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     }
   }
 
-  def attrApplyParse(curClass: ClassSpec, attr: AttrLikeSpec, defEndian: Option[Endianness]): Unit = {
+  def attrApplyParse(curClass: ClassSpec, attr: AttrLikeSpec): Unit = {
     attrParseIfHeader(attr.id, attr.cond.ifExpr)
-    defEndian match {
-      case Some(_: CalcEndian) | Some(InheritedEndian) =>
-        attrParseHybrid(
-          () => attrApplyParse0(curClass, attr, Some(LittleEndian)),
-          () => attrApplyParse0(curClass, attr, Some(BigEndian))
-        )
-      case None =>
-        attrApplyParse0(curClass, attr, None)
-      case Some(fe: FixedEndian) =>
-        attrApplyParse0(curClass, attr, Some(fe))
-    }
+    attrApplyParse0(curClass, attr)
     attrParseIfFooter(attr.cond.ifExpr)
   }
 
-  def attrApplyParse0(curClass: ClassSpec, attr: AttrLikeSpec, defEndian: Option[FixedEndian]): Unit = {
+  def attrApplyParse0(curClass: ClassSpec, attr: AttrLikeSpec): Unit = {
     attr.cond.repeat match {
       case NoRepeat =>
-        attrApplyParse2(curClass, attr, defEndian)
+        attrApplyParse2(curClass, attr)
       case _ =>
         condRepeatHeaderApply(attr.id, needRaw(attr.dataType))
-        attrApplyParse2(curClass, attr, defEndian)
+        attrApplyParse2(curClass, attr)
         condRepeatFooterApply()
     }
   }
@@ -773,7 +770,6 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   def attrApplyParse2(
     curClass: ClassSpec,
     attr: AttrLikeSpec,
-    defEndian: Option[FixedEndian],
     dataType: Option[DataType] = None,
     postfix: String = ""
   ): Unit = {
@@ -797,7 +793,7 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         } else {
           st.isNullable
         })
-        attrApplySwitchTypeParse(curClass, attr, st.on, st.cases, rep, defEndian, isNullable, st.combinedType)
+        attrApplySwitchTypeParse(curClass, attr, st.on, st.cases, rep, isNullable, st.combinedType)
       case t: StrFromBytesType => handleApply(wsAttrProtoName, id, rep)
       case t: EnumType => handleApply(wsAttrProtoName, id, rep, ".value")
       case _ => handleApply(wsAttrProtoName, id, rep)
@@ -806,8 +802,8 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   def attrApplyUserTypeParse(attr: AttrLikeSpec): Unit = {
     attr.cond.repeat match {
-      case NoRepeat => out.puts(s"${privateMemberName(attr.id)}:_apply(self._tree)")
-      case _ => out.puts(s"${privateMemberName(attr.id)}[i + 1]:_apply(self._tree)")
+      case NoRepeat => out.puts(s"""${privateMemberName(attr.id)}:_apply(self._tree, "${idToStr(attr.id)}")""")
+      case _ => out.puts(s"""${privateMemberName(attr.id)}[i + 1]:_apply(self._tree, "${idToStr(attr.id)}[" .. i .. "]")""")
     }
   }
 
@@ -817,7 +813,6 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     on: Ast.expr,
     cases: Map[Ast.expr, DataType],
     rep: RepeatSpec,
-    defEndian: Option[FixedEndian],
     isNullable: Boolean,
     assignType: DataType
   ): Unit = {
@@ -831,9 +826,9 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       (dataType) => {
         if (isNullable)
           condIfSetNonNull(id)
-        attrApplyParse2(curClass, attr, defEndian, Some(dataType), switchTypeProtoPostfix(typeMap(dataType)))
+        attrApplyParse2(curClass, attr, Some(dataType), switchTypeProtoPostfix(typeMap(dataType)))
       },
-      (dataType) => attrApplyParse2(curClass, attr, defEndian, Some(dataType), switchTypeProtoPostfix(typeMap(dataType)))
+      (dataType) => attrApplyParse2(curClass, attr, Some(dataType), switchTypeProtoPostfix(typeMap(dataType)))
     )
   }
 
