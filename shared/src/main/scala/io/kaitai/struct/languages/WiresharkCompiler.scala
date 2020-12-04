@@ -674,7 +674,7 @@ class WiresharkCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
         )
       case et: EnumType =>
         val protoMethod = readableIntWiresharkProto(et.basedOn)
-        val wsEnumName = s"${types2class(curClass.name)}.${types2class(et.name)}__ws_proto"
+        val wsEnumName = s"${types2class(et.enumSpec.get.name)}__ws_proto"
         handleAssignmentDumb(
           wsAttrProtoName,
           s"""ProtoField.${protoMethod}("${wsAttrPath}", "${wsAttrName}", base.DEC, ${wsEnumName}, nil, "${doc}"),"""
