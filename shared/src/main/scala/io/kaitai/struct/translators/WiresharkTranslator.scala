@@ -5,7 +5,7 @@ import io.kaitai.struct.datatype.DataType
 import io.kaitai.struct.datatype.DataType._
 import io.kaitai.struct.format.Identifier
 import io.kaitai.struct.exprlang.Ast
-import io.kaitai.struct.languages.LuaCompiler
+import io.kaitai.struct.languages.WiresharkCompiler
 
 class WiresharkTranslator(provider: TypeProvider, importList: ImportList) extends BaseTranslator(provider) {
   override val asciiCharQuoteMap: Map[Char, String] = Map(
@@ -60,9 +60,9 @@ class WiresharkTranslator(provider: TypeProvider, importList: ImportList) extend
   override def doName(s: String): String =
     s
   override def doEnumByLabel(enumTypeAbs: List[String], label: String): String =
-    s"${LuaCompiler.types2class(enumTypeAbs)}.$label"
+    s"${WiresharkCompiler.types2class(enumTypeAbs)}.$label"
   override def doEnumById(enumTypeAbs: List[String], id: String): String =
-    s"${LuaCompiler.types2class(enumTypeAbs)}($id)"
+    s"${WiresharkCompiler.types2class(enumTypeAbs)}($id)"
 
   // This is very hacky because integers and booleans cannot be compared
   override def doNumericCompareOp(left: Ast.expr, op: Ast.cmpop, right: Ast.expr): String = {
